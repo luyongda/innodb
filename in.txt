@@ -1,1 +1,97 @@
-ino
+InnoDB 存储引擎
+1.后台线程
+	1.Master Thread
+	将缓冲池中的数据异步刷新到磁盘，保证数据的一致性
+	刷新脏页、合并插入缓冲、undo页回收
+	2.IO Thread
+	write read insert buffer log IO  
+	3.Purge Thread
+	事物提交后，所使用的undolog 不在需要 需要回收
+	4.Page Cleaner Thread
+	脏页的刷新放到单独的线程中完成  减轻 Master Thread 工作
+2.内存
+	1.缓冲池
+		数据页 索引页 undo页 插入缓冲、自适应哈希索引 锁信息、数据字典信息
+	2.LRUList FreeList 和 FlushList
+		数据库缓冲池是通过LRU算法管理的
+		LRU 加入 midpoint位置 默认插入到LRU列表的 5/8处
+		数据库才启动 LRU列表为空 当需要分页时，首先从Free列表冲查找是否有
+		可用的空闲页，如有 将该页从Free列表中删除，放入到LRU列表中。如没有根据LRU算法 淘汰LRU列表末尾的页
+		Flush 中的页是脏页
+	3.重做日志缓冲（redo log buffer） 每秒发生 将重做日志缓冲刷新到重做日志文件
+		1.Master Thread 每秒将重做日志缓冲刷新到重做日志文件
+		2.每个事物提交时会将重做日志缓冲刷新到重做日志文件
+		3.当重做日志缓冲池剩余空间小于1/2时，重做日志缓冲刷新到重做日志文件
+	4.额外内存池
+3.checkPoint
+	1.事物提交时，先做重做日志，再修改页   如若宕机 通过重做日志来恢复
+	目的；
+		1.缩短数据库的恢复时间
+		2.缓冲池不够用时，将脏页刷新到磁盘
+		3.重做日志不可用时，刷新脏页
+	sharp checkPoint （数据库关闭时将所有脏页刷新到磁盘）
+	fuzzy checkpoint （刷新一部分脏页）
+		1.Master Thread Checkponit （每秒或每十秒 缓冲池的脏页一定比例刷新回磁盘）（异步 查询线程不会阻塞）
+		2.Flush_LRU_List CHeckpoint （保证LRU列表有100个空闲页可用（会阻塞查询线程） 如果没有100个 将LRU列表页尾端页移除）
+			如果移除的页有脏页 需要进行checkpoint） 在一个单独的Page Cleaner线程中进行 脏页是冲LRU列表页中选取
+		3.Async/Sync Flush Checkpoint （重做日志文件不可用的情况 需要强制将一些页刷新回磁盘 脏页是冲脏页列表中选取）
+		4.Dirty Page too much Checkpoint（脏页太多 强制checkpoint）75%
+4.Master Thread
+	1.innodb 1.0.x 版本前
+		主循环（loop）、后台循环（backgroup loop）、刷新循环（flush loop）、暂停循环（suspend loop）
+		1.主循环 每秒操作
+			1.（重做）日志缓冲刷新到磁盘，即使这个事物还没有提交（总是）；在大的事物提交时间也很短
+			2.合并杀入缓冲（可能）； 前一秒内发生的IO次数是否小于5次，如果小于5次，认为IO压力很小，可以执行合并插入缓冲
+			3.至多刷新100个InnoDB的缓冲池中的脏页到磁盘（可能）；判断当前脏页的比例是否超过设置的比例 超过则需要磁盘同步
+			4.如果当前没有用户活动，则切换到background loop（可能）；
+		每十秒操作
+			1.刷新100个脏页到磁盘（可能的情况下）；过去10秒内IO操作是否小于200次 小于的话 刷新100个脏页到磁盘
+			2.合并最多5个插入缓冲（总是）；
+			3.将日志缓冲刷新到磁盘（总是）；
+			4.删除无用的Undo页（总是）；如update 、delete 操作时，原先的行被标记为删除   full purge操作 尝试回收20个undo页
+			5.刷新100个或者10个脏页到磁盘（总是）；比例操过70% 刷新100个脏页 否则刷新 10%的脏页
+		后台循环（backgroup loop）---如果当前没有用户活动（数据库空闲）或者数据库关闭（shutdown） 会切换到这个循环
+		1.删除无用的Undo页（总是）；
+		2.合并20个插入缓冲（总是）；
+		3.跳回到主循环（总是）；
+		4.不断刷新100个页知道符合条件（可能跳转到flush loop中完成）；
+		
+		暂停循环（suspend loop）---如果flush loop中没什么事件发生。会切换到suspend loop 将Master Thread挂起，等待时间发生
+	1.innodb 1.2.x 版本 解决IO性能
+		1.合并插入缓冲时，合并插入缓冲的数量为 innodb_io_capacity值得5%；
+		2.在从缓冲区刷新脏页时，刷新脏页的数量为innodb_io_capacity。
+5.InnoDB关键特性
+	1.插入缓冲（Insert Buffer）
+	2.两次写（Double Write）
+	3.自适应哈希索引（Adaptive Hash Index）
+	4.异步IO（Async IO）
+	5.刷新邻接页（Flush Neighbor Page）
+	
+	1.插入缓冲
+		1.索引是辅助索引
+		2.索引不是唯一的
+		
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
